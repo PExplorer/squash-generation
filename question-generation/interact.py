@@ -57,20 +57,25 @@ def top_filtering(logits, top_k=0, top_p=0.0, threshold=-float('Inf'), filter_va
     return logits
 
 
-def sample_sequence(inst, tokenizer, model, args):
+def sample_sequence(inst, tokenizer, model, args,past):
     special_tokens_ids = tokenizer.convert_tokens_to_ids(SPECIAL_TOKENS)
+    
     inst['original_question'] = inst['question']
     inst['question'] = []
+    inst['paragraph_orig']=inst['paragraph']
+    inst['paragraph']=[] # "past" has hidden states of tokens 
     instance, _ = build_input_from_segments(inst, tokenizer, with_eos=False)
+    input_ids = torch.tensor(instance["input_ids"], device=args.device).unsqueeze(0)
+    token_type_ids = torch.tensor(instance["token_type_ids"], device=args.device).unsqueeze(0)
     inst['original_context'] = instance['input_ids']
+    logits,past = model(input_ids,token_type_ids = token_type_ids,past =past)
 
     for i in range(args.max_length):
-        instance, _ = build_input_from_segments(inst, tokenizer, with_eos=False)
+        #instance, _ = build_input_from_segments(inst, tokenizer, with_eos=False)
+        #input_ids = torch.tensor(instance["input_ids"], device=args.device).unsqueeze(0)
+        #token_type_ids = torch.tensor(instance["token_type_ids"], device=args.device).unsqueeze(0)
 
-        input_ids = torch.tensor(instance["input_ids"], device=args.device).unsqueeze(0)
-        token_type_ids = torch.tensor(instance["token_type_ids"], device=args.device).unsqueeze(0)
-
-        logits, _ = model(input_ids, token_type_ids=token_type_ids)
+        #logits, _ = model(input_ids, token_type_ids=token_type_ids)
 
         logits = logits[0, -1, :] / args.temperature
         logits = top_filtering(logits, top_k=args.top_k, top_p=args.top_p)
@@ -84,7 +89,8 @@ def sample_sequence(inst, tokenizer, model, args):
         if prev.item() in special_tokens_ids:
             break
         inst['question'].append(prev.item())
-
+        logits,past = model(input_ids,token_type_ids=token_type_ids,past=past)
+    inst['paragraph']=inst['paragraph_orig']
     return inst
 
 
@@ -131,9 +137,28 @@ def run():
         }]
     }
     question_number = 0
+    # For all the instances corresponding one paragraph, model input format is: paragraph + answer + question) 
+    # Paragraph will be common accross all the instances.
+    # "past" can be used to reuse precomputed hidden state for paragraph in a subsequent predictions
+    
+    imort copy 
+    
+    previous_para_index = None
+    past = None
     for inst in tqdm.tqdm(data):
         with torch.no_grad():
-            output = sample_sequence(inst, tokenizer, model, args)
+            current_para_index = inst['para_index']
+            if current_para_index != prev_para_index:
+                past = None
+                currrent_inst = copy.deepcopy(inst)
+                # only keeping paragraph details in the instance to get its hidden states 
+                current_inst['question'] =  []
+                current_inst['answer'] = []
+                instance, _ = build_input_from_segments(current_inst,tokenizer,with_eos=False)
+                input_ids = torch.tensor(instance['input_ids'][:-2],device=args.device).unsqueeze(0)
+                token_type_ids = torch.tensor(instance['token_type_ids'][:-2],device=args.device).unsqueeze(0)
+                _,past=model(input_ids,toekn_type_ids=toekn_type_ids,past=past) #output "past" will have paragraph embeddings
+            output = sample_sequence(inst, tokenizer, model, args,past)
 
         original_paragraph = tokenizer.decode(output['paragraph'])
         generated_question = tokenizer.decode(output['question'], skip_special_tokens=True)

@@ -63,7 +63,7 @@ def sample_sequence(inst, tokenizer, model, args,past):
     inst['original_question'] = inst['question']
     inst['question'] = []
     inst['paragraph_orig']=inst['paragraph']
-    inst['paragraph']=[] # "past" has hidden states of tokens 
+    inst['paragraph']=[] # "past" has hidden states of tokens inparagraph. So assigning empty value 
     instance, _ = build_input_from_segments(inst, tokenizer, with_eos=False)
     input_ids = torch.tensor(instance["input_ids"], device=args.device).unsqueeze(0)
     token_type_ids = torch.tensor(instance["token_type_ids"], device=args.device).unsqueeze(0)
